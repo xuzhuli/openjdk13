@@ -393,7 +393,7 @@ public class HashMap<K, V> extends AbstractMap<K, V>
 
     /**
      * Returns a power of two size for the given target capacity.
-     *
+     * <p>
      * 返回比给定参数大,且最接近该参数,且这个数必须是2的N次方
      * 基本思路参考二分查找法
      */
@@ -409,11 +409,10 @@ public class HashMap<K, V> extends AbstractMap<K, V>
      * necessary. When allocated, length is always a power of two.
      * (We also tolerate length zero in some operations to allow
      * bootstrapping mechanics that are currently not needed.)
-     *
+     * <p>
      * transient申明不需要序列化
-     *
+     * <p>
      * Node 数组
-     *
      */
     transient Node<K, V>[] table;
 
@@ -439,7 +438,7 @@ public class HashMap<K, V> extends AbstractMap<K, V>
 
     /**
      * The next size value at which to resize (capacity * load factor).
-     *
+     * <p>
      * 容量阈值,表示当容量达到这个值的时候进行扩容,
      * 假设threshold=10,那么当容器的大小达到10的时候就需要进行扩容
      *
@@ -665,21 +664,33 @@ public class HashMap<K, V> extends AbstractMap<K, V>
     final V putVal(int hash, K key, V value, boolean onlyIfAbsent,
                    boolean evict) {
         Node<K, V>[] tab;
+        // 方法中的临时节点
         Node<K, V> p;
+        // n表示容器链表长度
+        // i表示
         int n, i;
-        if ((tab = table) == null || (n = tab.length) == 0)
+        // 判断当前容器大小是否为空,如果为空则初始化容器
+        // 容器初始化是在第一次put值的时候
+        if ((tab = table) == null || (n = tab.length) == 0) {
             n = (tab = resize()).length;
-        if ((p = tab[i = (n - 1) & hash]) == null)
+        }
+        // 判断当前key的hash值是否存在,如果不存在创建一个新的节点,
+        // 否则处理else中的逻辑
+        if ((p = tab[i = (n - 1) & hash]) == null) {
             tab[i] = newNode(hash, key, value, null);
-        else {
+        } else {
+            // 定义一个存在的临时Node
             Node<K, V> e;
+            // 定义一个已经存在的Key的临时对象
             K k;
             if (p.hash == hash &&
-                    ((k = p.key) == key || (key != null && key.equals(k))))
+                    ((k = p.key) == key || (key != null && key.equals(k)))) {
                 e = p;
-            else if (p instanceof TreeNode)
+            } else if (p instanceof TreeNode) {
+                // 如果p已经是一颗数了
                 e = ((TreeNode<K, V>) p).putTreeVal(this, tab, hash, key, value);
-            else {
+            } else {
+                // 树化
                 for (int binCount = 0; ; ++binCount) {
                     if ((e = p.next) == null) {
                         p.next = newNode(hash, key, value, null);
@@ -714,6 +725,9 @@ public class HashMap<K, V> extends AbstractMap<K, V>
      * Otherwise, because we are using power-of-two expansion, the
      * elements from each bin must either stay at same index, or move
      * with a power of two offset in the new table.
+     * <p>
+     * 初始化或加倍表的大小。如果为空，按照字段阈值中持有的初始容量目标分配。
+     * 否则，因为我们使用的是2的幂展开，所以每个bin中的元素要么保持在相同的索引位置，要么在新表中以2的幂移动。
      *
      * @return the table
      */
@@ -722,8 +736,11 @@ public class HashMap<K, V> extends AbstractMap<K, V>
         int oldCap = (oldTab == null) ? 0 : oldTab.length;
         int oldThr = threshold;
         int newCap, newThr = 0;
+        // 容器容量大于0时
         if (oldCap > 0) {
+            // 容器容量大于等于最大容量时
             if (oldCap >= MAXIMUM_CAPACITY) {
+                // 阈值
                 threshold = Integer.MAX_VALUE;
                 return oldTab;
             } else if ((newCap = oldCap << 1) < MAXIMUM_CAPACITY &&
