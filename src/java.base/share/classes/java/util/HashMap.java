@@ -350,6 +350,10 @@ public class HashMap<K, V> extends AbstractMap<K, V>
      * cheapest possible way to reduce systematic lossage, as well as
      * to incorporate impact of the highest bits that would otherwise
      * never be used in index calculations because of table bounds.
+     *
+     * hash值和自身右移16位的hash值进行异或操作,相同为0,不同为1
+     * 目的是为了让hash值的高位也参与计算,这样能保证在计算数组下标时带有hash值的高位属性
+     *
      */
     static final int hash(Object key) {
         int h;
@@ -433,6 +437,10 @@ public class HashMap<K, V> extends AbstractMap<K, V>
      * the HashMap or otherwise modify its internal structure (e.g.,
      * rehash).  This field is used to make iterators on Collection-views of
      * the HashMap fail-fast.  (See ConcurrentModificationException).
+     *
+     * 当Map中添加元素或者删除元素时,该值都会加1
+     * 添加元素时,如果key重复了,该值不会变化
+     *
      */
     transient int modCount;
 
@@ -663,58 +671,79 @@ public class HashMap<K, V> extends AbstractMap<K, V>
      */
     final V putVal(int hash, K key, V value, boolean onlyIfAbsent,
                    boolean evict) {
+        // map中的数组
         Node<K, V>[] tab;
-        // 方法中的临时节点
+        // 临时Node对象
         Node<K, V> p;
-        // n表示容器链表长度
-        // i表示
+        // n表示数组长度
+        // i表示数组下标
         int n, i;
-        // 判断当前容器大小是否为空,如果为空则初始化容器
-        // 容器初始化是在第一次put值的时候
-        if ((tab = table) == null || (n = tab.length) == 0) {
+        // 当数组为空或者长度为0时,调用
+        if ((tab = table) == null || (n = tab.length) == 0)
             n = (tab = resize()).length;
-        }
-        // 判断当前key的hash值是否存在,如果不存在创建一个新的节点,
-        // 否则处理else中的逻辑
+        // 判断数组中下标为i的Node是否存在
+        // 这里使用(n - 1) & hash能够保证i的值落在0-n之间,前提是n必须是2的N次方
+        // 假设n=16,二进制表示:10000,n-1=15,二进制表示:1111,高位全部是0,所以不管什么值和它进行按位与,结果都在[0-15]之间
+        // 如果n不是2的N次方,计算结果无法保证取到[0-n]之间的所有值,比如n=10,n-1=9,二进制表示:1001,根据按位与的计算规则,中间两位永远为0
+        // 为什么不使用取余运算,因为取余运算效率没有按位与运算高
         if ((p = tab[i = (n - 1) & hash]) == null) {
+            // 如果Node不存在,new一个新的Node对象,并放置到数组的第i个位置
             tab[i] = newNode(hash, key, value, null);
         } else {
-            // 定义一个存在的临时Node
+            // 如果Node存在
+            // e表示临时Node节点
             Node<K, V> e;
-            // 定义一个已经存在的Key的临时对象
             K k;
-            if (p.hash == hash &&
-                    ((k = p.key) == key || (key != null && key.equals(k)))) {
+            // 如果传入的参数的key对应的hash值和当前节点上的Node的hash值相等,并且key值相等,则直接把对象p赋值给e
+            // 这一步就是HashMap中当Key重复时的逻辑处理
+            if (p.hash == hash && ((k = p.key) == key || (key != null && key.equals(k)))) {
                 e = p;
             } else if (p instanceof TreeNode) {
-                // 如果p已经是一颗数了
+                // 如果Key不存在,判断存在的节点p是不是TreeNode对象
+                // 如果已经时一个TreeNode对象,按照TreeNode对象进行赋值
                 e = ((TreeNode<K, V>) p).putTreeVal(this, tab, hash, key, value);
             } else {
-                // 树化
+                // 当前节点既没有重复的Key,也不是一个TreeNode对象
+                // 这里主要是链表操作
                 for (int binCount = 0; ; ++binCount) {
+                    // 判断当前节点p的下一个是否为null
+                    // 如果为null,则new一个新的Node节点,并把当前节点的next指向新new出来的Node节点
                     if ((e = p.next) == null) {
                         p.next = newNode(hash, key, value, null);
-                        if (binCount >= TREEIFY_THRESHOLD - 1) // -1 for 1st
+                        // 当链上的桶数大于等于7时,把链表转换成红黑树
+                        // TREEIFY_THRESHOLD默认值为8
+                        if (binCount >= TREEIFY_THRESHOLD - 1) {
+                            // -1 for 1st
+                            // 树化操作
                             treeifyBin(tab, hash);
+                        }
                         break;
                     }
-                    if (e.hash == hash &&
-                            ((k = e.key) == key || (key != null && key.equals(k))))
+                    // 当前Node的next节点e不为null,判断e的hash和传入的hash是否相等,e的key是否和传入的key相等
+                    // 这一步是为了判断key是否有重复,如果重复,直接跳出循环到重复key的操作流程
+                    if (e.hash == hash && ((k = e.key) == key || (key != null && key.equals(k)))) {
                         break;
+                    }
+                    // 如果上诉条件都不满足,把e赋值给p,继续循环
                     p = e;
                 }
             }
+
+            // 存在相同的Key时,覆盖原始的Value
+            // onlyIfAbsent默认false,表示Key重复时,替换value
             if (e != null) { // existing mapping for key
                 V oldValue = e.value;
-                if (!onlyIfAbsent || oldValue == null)
+                if (!onlyIfAbsent || oldValue == null) {
                     e.value = value;
+                }
                 afterNodeAccess(e);
                 return oldValue;
             }
         }
         ++modCount;
-        if (++size > threshold)
+        if (++size > threshold) {
             resize();
+        }
         afterNodeInsertion(evict);
         return null;
     }
@@ -732,23 +761,34 @@ public class HashMap<K, V> extends AbstractMap<K, V>
      * @return the table
      */
     final Node<K, V>[] resize() {
+        // 原始数组
         Node<K, V>[] oldTab = table;
+        // 如果原始数组为null,那么原始设置数组大小为0,否则取原始数组长度
         int oldCap = (oldTab == null) ? 0 : oldTab.length;
+
         int oldThr = threshold;
+        // newCap表示新的数组大小
+        // newThr表示新的扩容阈值
         int newCap, newThr = 0;
-        // 容器容量大于0时
+        // 当原始容量大于0时
         if (oldCap > 0) {
-            // 容器容量大于等于最大容量时
+            // 如果原始容量大于等于最大容量时
             if (oldCap >= MAXIMUM_CAPACITY) {
-                // 阈值
+                // 阈值取Integer的最大值
                 threshold = Integer.MAX_VALUE;
                 return oldTab;
             } else if ((newCap = oldCap << 1) < MAXIMUM_CAPACITY &&
                     oldCap >= DEFAULT_INITIAL_CAPACITY)
+                // 这里进行双倍扩容
                 newThr = oldThr << 1; // double threshold
-        } else if (oldThr > 0) // initial capacity was placed in threshold
+        } else if (oldThr > 0) {
+            // initial capacity was placed in threshold
+            // 如果原始容量小于等于0,且原始阈值大于0,设置数组新的大小为原始阈值
             newCap = oldThr;
-        else {               // zero initial threshold signifies using defaults
+        } else {
+            // zero initial threshold signifies using defaults
+            // 初始化数组大小为默认大小16
+            // 初始阈值为默认加载因子*默认大小= 0.75 * 16 = 12
             newCap = DEFAULT_INITIAL_CAPACITY;
             newThr = (int) (DEFAULT_LOAD_FACTOR * DEFAULT_INITIAL_CAPACITY);
         }
@@ -758,35 +798,54 @@ public class HashMap<K, V> extends AbstractMap<K, V>
                     (int) ft : Integer.MAX_VALUE);
         }
         threshold = newThr;
+
+        // 重新分配数组
         @SuppressWarnings({"rawtypes", "unchecked"})
         Node<K, V>[] newTab = (Node<K, V>[]) new Node[newCap];
         table = newTab;
+        // 如果原始数组不为null,取出原始数组中的原始重新编排位置,否则直接返回一个空数组
         if (oldTab != null) {
             for (int j = 0; j < oldCap; ++j) {
                 Node<K, V> e;
+                // 下标为j的节点不为null
                 if ((e = oldTab[j]) != null) {
+                    // 手动清空原数组第j个节点
                     oldTab[j] = null;
-                    if (e.next == null)
+                    // 如果当前节点没有next,直接创建一个新Node
+                    if (e.next == null) {
                         newTab[e.hash & (newCap - 1)] = e;
-                    else if (e instanceof TreeNode)
+                    } else if (e instanceof TreeNode) {
+                        // 当前Node是一颗红黑树
                         ((TreeNode<K, V>) e).split(this, newTab, j, oldCap);
-                    else { // preserve order
+                    } else { // preserve order
+                        // 当前Node是一个链表
                         Node<K, V> loHead = null, loTail = null;
                         Node<K, V> hiHead = null, hiTail = null;
                         Node<K, V> next;
                         do {
                             next = e.next;
+                            // 这一步判断说明当前Node节点位置不需要调整,因为数组扩容之后,重新计算出的数组下标不变
+                            // 例如:原始大小为16,二进制表示:10000,如果当前hash值按位与10000为0,说明hash第5位肯定是0
+                            // 按照put方法中的数组下标计算规则:(hash & (数组大小-1))可以得出,该节点需要和1111进行按位与计算
+                            // 进行扩容以后,数组大小变为32,二进制表示100000,根据下标计算规则:32-1=31,二进制表示:11111
+                            // 11111和hash值进行按位与时,由于hash值的第5位为0,所以最终结果还是和1111进行按位与计算
+                            // 通过以上计算得出,数组扩容之后,该节点的下标没有变化
                             if ((e.hash & oldCap) == 0) {
-                                if (loTail == null)
+                                // 数组下标不变的情况
+                                if (loTail == null) {
                                     loHead = e;
-                                else
+                                } else {
                                     loTail.next = e;
+                                }
                                 loTail = e;
                             } else {
-                                if (hiTail == null)
+                                // 否则第5位是1,下标为:16+原始下标
+                                // 数组下标发生变化
+                                if (hiTail == null) {
                                     hiHead = e;
-                                else
+                                } else {
                                     hiTail.next = e;
+                                }
                                 hiTail = e;
                             }
                         } while ((e = next) != null);
@@ -812,15 +871,15 @@ public class HashMap<K, V> extends AbstractMap<K, V>
     final void treeifyBin(Node<K, V>[] tab, int hash) {
         int n, index;
         Node<K, V> e;
-        if (tab == null || (n = tab.length) < MIN_TREEIFY_CAPACITY)
+        if (tab == null || (n = tab.length) < MIN_TREEIFY_CAPACITY) {
             resize();
-        else if ((e = tab[index = (n - 1) & hash]) != null) {
+        } else if ((e = tab[index = (n - 1) & hash]) != null) {
             TreeNode<K, V> hd = null, tl = null;
             do {
                 TreeNode<K, V> p = replacementTreeNode(e, null);
-                if (tl == null)
+                if (tl == null) {
                     hd = p;
-                else {
+                } else {
                     p.prev = tl;
                     tl.next = p;
                 }
